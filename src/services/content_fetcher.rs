@@ -187,33 +187,31 @@ impl ContentFetcher {
         None
     }
 
-    /// Extract readable content from HTML using readability
-    fn extract_content(&self, html: &str, url: &str) -> Option<String> {
-        use readability::extractor;
-
-        let parsed_url = match Url::parse(url) {
-            Ok(u) => u,
+    /// Extract readable content from HTML using html2text
+    fn extract_content(&self, html: &str, _url: &str) -> Option<String> {
+        // Use html2text to convert HTML to plain text
+        // This avoids the html5ever namespace warnings from readability
+        let text = match html2text::from_read(html.as_bytes(), 80) {
+            Ok(t) => t,
             Err(e) => {
-                tracing::debug!("Failed to parse URL for content extraction: {}", e);
+                tracing::debug!("Failed to convert HTML to text: {}", e);
                 return None;
             }
         };
 
-        match extractor::extract(&mut html.as_bytes(), &parsed_url) {
-            Ok(product) => {
-                let text = product.text;
-                if text.len() > 200 {
-                    Some(text)
-                } else {
-                    // Content too short, probably failed to extract
-                    tracing::debug!("Extracted content too short ({} chars)", text.len());
-                    None
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Failed to extract content: {}", e);
-                None
-            }
+        // Clean up the text - remove excessive whitespace
+        let cleaned: String = text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if cleaned.len() > 200 {
+            Some(cleaned)
+        } else {
+            tracing::debug!("Extracted content too short ({} chars)", cleaned.len());
+            None
         }
     }
 }

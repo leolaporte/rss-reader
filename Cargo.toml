@@ -33,10 +33,6 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # URL parsing
 url = "2.5"
 
-# HTML content extraction
-readability = "0.3"
-scraper = "0.22"
-
 # Feed Parsing
 feed-rs = "2.3"
 opml = "1.1"
