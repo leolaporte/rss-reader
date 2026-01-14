@@ -158,19 +158,6 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn toggle_article_starred(&self, id: i64) -> Result<()> {
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "UPDATE articles SET is_starred = NOT is_starred WHERE id = ?1",
-                    params![id],
-                )?;
-                Ok(())
-            })
-            .await?;
-        Ok(())
-    }
-
     pub async fn delete_article(&self, id: i64) -> Result<()> {
         self.conn
             .call(move |conn| {

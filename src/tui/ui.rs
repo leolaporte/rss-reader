@@ -34,7 +34,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),   // Article title
+            Constraint::Length(4),   // Article title (feed + title)
             Constraint::Percentage(30), // Feed content (30%)
             Constraint::Percentage(70), // AI summary (70%)
             Constraint::Length(1),   // Status (generating/cached)
@@ -110,31 +110,24 @@ fn render_article_list(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::White)
             };
 
-            let star = if article.is_starred { "★ " } else { "  " };
             let day = article
                 .published_at
                 .map(|dt| {
                     match dt.weekday() {
-                        chrono::Weekday::Mon => "Mon",
-                        chrono::Weekday::Tue => "Tue",
-                        chrono::Weekday::Wed => "Wed",
-                        chrono::Weekday::Thu => "Thu",
-                        chrono::Weekday::Fri => "Fri",
-                        chrono::Weekday::Sat => "Sat",
-                        chrono::Weekday::Sun => "Sun",
+                        chrono::Weekday::Mon => "M  ",
+                        chrono::Weekday::Tue => "T  ",
+                        chrono::Weekday::Wed => "W  ",
+                        chrono::Weekday::Thu => "Th ",
+                        chrono::Weekday::Fri => "F  ",
+                        chrono::Weekday::Sat => "Sa ",
+                        chrono::Weekday::Sun => "Su ",
                     }
                 })
-                .unwrap_or("???");
-            let feed = article
-                .feed_title
-                .as_deref()
-                .unwrap_or("Unknown");
+                .unwrap_or("?  ");
             let title = &article.title;
 
             let line = Line::from(vec![
-                Span::styled(star, Style::default().fg(Color::Yellow)),
-                Span::styled(format!("{day}: "), Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("[{feed}] "), Style::default().fg(Color::Blue)),
+                Span::styled(day, Style::default().fg(Color::DarkGray)),
                 Span::styled(title, style),
             ]);
 
@@ -148,8 +141,7 @@ fn render_article_list(frame: &mut Frame, app: &App, area: Rect) {
             Style::default()
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("> ");
+        );
 
     let mut state = ListState::default();
     state.select(Some(app.selected_index));
@@ -161,7 +153,7 @@ fn render_left_status(frame: &mut Frame, app: &App, area: Rect) {
     let (status, color) = if app.is_refreshing {
         (format!("{} Refreshing feeds...", app.spinner_char()), Color::Cyan)
     } else {
-        ("j/k:nav  r:refresh  s:star  e:email  ?:help  q:quit".to_string(), Color::DarkGray)
+        ("j/k:nav  r:refresh  o:open  e:email  ?:help  q:quit".to_string(), Color::DarkGray)
     };
 
     let paragraph = Paragraph::new(status).style(Style::default().fg(color));
@@ -169,21 +161,29 @@ fn render_left_status(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_article_title(frame: &mut Frame, app: &App, area: Rect) {
-    let title = app
+    let (feed, title) = app
         .selected_article()
-        .map(|a| a.title.as_str())
-        .unwrap_or("No article selected");
+        .map(|a| {
+            let feed = a.feed_title.as_deref().unwrap_or("Unknown");
+            (feed, a.title.as_str())
+        })
+        .unwrap_or(("", "No article selected"));
 
     let block = Block::default()
         .title(" Article ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Green));
 
-    let paragraph = Paragraph::new(title)
-        .block(block)
-        .wrap(Wrap { trim: true });
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
-    frame.render_widget(paragraph, area);
+    let text = vec![
+        Line::from(Span::styled(feed, Style::default().fg(Color::Blue))),
+        Line::from(Span::styled(title, Style::default().fg(Color::White))),
+    ];
+
+    let paragraph = Paragraph::new(text).wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, inner);
 }
 
 fn render_feed_content(frame: &mut Frame, app: &App, area: Rect) {
@@ -403,6 +403,8 @@ fn render_help(frame: &mut Frame) {
         " Navigation:",
         "   j / ↓    Move down",
         "   k / ↑    Move up",
+        "   <        Go to top",
+        "   >        Go to bottom",
         "   Enter    Select / Generate summary",
         "",
         " Actions:",
@@ -410,7 +412,6 @@ fn render_help(frame: &mut Frame) {
         "   a        Add new feed",
         "   i        Import OPML file",
         "   w        Export OPML file",
-        "   s        Toggle starred",
         "   m        Toggle read/unread",
         "   o        Open in browser",
         "   e        Email article",

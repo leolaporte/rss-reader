@@ -57,7 +57,6 @@ pub struct App {
 
     // Async state
     pub is_refreshing: bool,
-    pub is_discovering_feed: bool,
     pub summary_status: SummaryStatus,
     pub pending_summary_article_id: Option<i64>,
     summary_rx: mpsc::Receiver<SummaryResult>,
@@ -128,7 +127,6 @@ impl App {
             spinner_frame: 0,
             selection_time: None,
             is_refreshing: false,
-            is_discovering_feed: false,
             summary_status: SummaryStatus::NotGenerated,
             pending_summary_article_id: None,
             summary_rx,
@@ -151,7 +149,6 @@ impl App {
             .filter(|a| match self.filter {
                 ArticleFilter::All => true,
                 ArticleFilter::Unread => !a.is_read,
-                ArticleFilter::Starred => a.is_starred,
             })
             .collect()
     }
@@ -185,20 +182,27 @@ impl App {
                 }
             }
 
+            AppAction::MoveToTop => {
+                if !self.filtered_articles().is_empty() && self.selected_index != 0 {
+                    self.selected_index = 0;
+                    self.on_selection_changed().await?;
+                }
+            }
+
+            AppAction::MoveToBottom => {
+                let len = self.filtered_articles().len();
+                if len > 0 && self.selected_index != len - 1 {
+                    self.selected_index = len - 1;
+                    self.on_selection_changed().await?;
+                }
+            }
+
             AppAction::SelectArticle => {
                 self.generate_summary().await?;
             }
 
             AppAction::RefreshFeeds => {
                 self.refresh_feeds();
-            }
-
-            AppAction::ToggleStarred => {
-                if let Some(article) = self.selected_article() {
-                    let id = article.id;
-                    self.repository.toggle_article_starred(id).await?;
-                    self.reload_articles().await?;
-                }
             }
 
             AppAction::ToggleRead => {
@@ -566,7 +570,6 @@ impl App {
         };
 
         self.feed_input_status = Some("Discovering feed...".to_string());
-        self.is_discovering_feed = true;
 
         let fetcher = self.fetcher.clone();
         let tx = self.discovery_tx.clone();
@@ -583,8 +586,6 @@ impl App {
     /// Poll for completed feed discovery results (non-blocking)
     pub async fn poll_discovery_result(&mut self) -> Result<()> {
         if let Ok(result) = self.discovery_rx.try_recv() {
-            self.is_discovering_feed = false;
-
             match result.result {
                 Ok(new_feed) => {
                     // Check if feed already exists
@@ -835,9 +836,9 @@ impl App {
         }
 
         // Expand ~ to home directory
-        let expanded = if input.starts_with("~/") {
+        let expanded = if let Some(rest) = input.strip_prefix("~/") {
             if let Some(home) = dirs::home_dir() {
-                home.join(&input[2..])
+                home.join(rest)
             } else {
                 PathBuf::from(&input)
             }
@@ -875,9 +876,9 @@ impl App {
         }
 
         // Expand ~ to home directory
-        let expanded = if input.starts_with("~/") {
+        let expanded = if let Some(rest) = input.strip_prefix("~/") {
             if let Some(home) = dirs::home_dir() {
-                home.join(&input[2..])
+                home.join(rest)
             } else {
                 PathBuf::from(&input)
             }

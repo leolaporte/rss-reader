@@ -5,9 +5,10 @@ pub enum AppAction {
     Quit,
     MoveUp,
     MoveDown,
+    MoveToTop,
+    MoveToBottom,
     SelectArticle,
     RefreshFeeds,
-    ToggleStarred,
     ToggleRead,
     OpenInBrowser,
     EmailArticle,
@@ -107,11 +108,12 @@ pub fn handle_key_event(
 
         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Some(AppAction::MoveDown),
         (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Some(AppAction::MoveUp),
+        (KeyCode::Char('<'), _) => Some(AppAction::MoveToTop),
+        (KeyCode::Char('>'), _) => Some(AppAction::MoveToBottom),
 
         (KeyCode::Enter, _) => Some(AppAction::SelectArticle),
 
         (KeyCode::Char('r'), _) => Some(AppAction::RefreshFeeds),
-        (KeyCode::Char('s'), _) => Some(AppAction::ToggleStarred),
         (KeyCode::Char('m'), _) => Some(AppAction::ToggleRead),
         (KeyCode::Char('o'), _) => Some(AppAction::OpenInBrowser),
         (KeyCode::Char('e'), _) => Some(AppAction::EmailArticle),

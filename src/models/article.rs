@@ -35,15 +35,13 @@ pub enum ArticleFilter {
     #[default]
     All,
     Unread,
-    Starred,
 }
 
 impl ArticleFilter {
     pub fn cycle(&self) -> Self {
         match self {
             ArticleFilter::All => ArticleFilter::Unread,
-            ArticleFilter::Unread => ArticleFilter::Starred,
-            ArticleFilter::Starred => ArticleFilter::All,
+            ArticleFilter::Unread => ArticleFilter::All,
         }
     }
 
@@ -51,7 +49,6 @@ impl ArticleFilter {
         match self {
             ArticleFilter::All => "All",
             ArticleFilter::Unread => "Unread",
-            ArticleFilter::Starred => "Starred",
         }
     }
 }
