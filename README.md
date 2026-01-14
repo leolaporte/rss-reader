@@ -10,9 +10,11 @@ Built for personal use, entirely vibe coded with [Claude Code](https://claude.ai
 - **Claude API integration**: Concise bullet-point summaries of articles
 - **Feed discovery**: Add feeds by URL with automatic RSS/Atom detection
 - **Raindrop.io integration**: Bookmark articles with AI summary in notes
-- **Permanent delete**: Deleted articles won't return on refresh
+- **Delete/Undelete**: Remove articles with undo support
 - **OPML import/export**: Import and export feed subscriptions
+- **Day-of-week display**: Articles prefixed with publication day (Mon, Tue, etc.)
 - **SQLite caching**: Offline reading with 7-day retention
+- **Auto-compaction**: Database cleaned and vacuumed on exit
 - **Auto-mark read**: Articles marked read after 2 seconds
 
 ## Installation
@@ -70,6 +72,7 @@ speedy-reader --refresh
 | `f` | Cycle filter (Unread/Starred/All) |
 | `g` | Regenerate summary |
 | `d` | Delete article |
+| `u` | Undelete last deleted |
 | `?` | Show help |
 | `q` | Quit |
 
