@@ -11,46 +11,54 @@ use crate::app::App;
 use crate::models::SummaryStatus;
 
 pub fn draw(frame: &mut Frame, app: &App) {
-    // Main horizontal split: narrower left, wider right
+    // Main vertical split: content area + status bar
+    let main_vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),    // Content area
+            Constraint::Length(1), // Status bar
+        ])
+        .split(frame.area());
+
+    // Content area: left pane + right pane
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(27), // Left pane: article list
             Constraint::Percentage(73), // Right pane: summary
         ])
-        .split(frame.area());
+        .split(main_vertical[0]);
 
-    // Left pane: header + article list + status
+    // Left pane: header + article list
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Title bar
             Constraint::Min(0),    // Article list
-            Constraint::Length(1), // Status line
         ])
         .split(main_chunks[0]);
 
-    // Right pane: title + feed content + AI summary + status
+    // Right pane: title + feed content + AI summary
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4),   // Article title (feed + title)
             Constraint::Percentage(30), // Feed content (30%)
             Constraint::Percentage(70), // AI summary (70%)
-            Constraint::Length(1),   // Status (generating/cached)
         ])
         .split(main_chunks[1]);
 
     // Render left pane
     render_header(frame, app, left_chunks[0]);
     render_article_list(frame, app, left_chunks[1]);
-    render_left_status(frame, app, left_chunks[2]);
 
     // Render right pane
     render_article_title(frame, app, right_chunks[0]);
     render_feed_content(frame, app, right_chunks[1]);
     render_summary(frame, app, right_chunks[2]);
-    render_right_status(frame, app, right_chunks[3]);
+
+    // Render unified status bar
+    render_status_bar(frame, app, main_vertical[1]);
 
     // Render tag input popup if active
     if app.tag_input_active {
@@ -79,15 +87,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
-    let filter_label = app.filter.label();
     let total_articles = app.articles.len();
-    let unread_count = app.articles.iter().filter(|a| !a.is_read).count();
-
-    let title = format!(" SpeedyReader [{filter_label}] ");
-    let stats = format!(" {} Stories | {} Unread", total_articles, unread_count);
+    let stats = format!(" {} Articles", total_articles);
 
     let block = Block::default()
-        .title(title)
+        .title(" SpeedyReader ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
 
@@ -104,12 +108,6 @@ fn render_article_list(frame: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = articles
         .iter()
         .map(|article| {
-            let style = if article.is_read {
-                Style::default().fg(Color::DarkGray)
-            } else {
-                Style::default().fg(Color::White)
-            };
-
             let (day, date) = article
                 .published_at
                 .map(|dt| {
@@ -133,7 +131,7 @@ fn render_article_list(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled(" ", Style::default()),
                 Span::styled(date, Style::default().fg(Color::DarkGray)),
                 Span::styled(" ", Style::default()),
-                Span::styled(feed.to_string(), style),
+                Span::styled(feed.to_string(), Style::default().fg(Color::White)),
             ]);
 
             ListItem::new(line)
@@ -154,14 +152,16 @@ fn render_article_list(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn render_left_status(frame: &mut Frame, app: &App, area: Rect) {
-    let (status, color) = if app.is_refreshing {
-        (format!("{} Refreshing feeds...", app.spinner_char()), Color::Cyan)
+fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
+    let status = if app.is_refreshing {
+        format!("{} Refreshing...", app.spinner_char())
+    } else if matches!(app.summary_status, SummaryStatus::Generating) {
+        format!("{} Summarizing...", app.spinner_char())
     } else {
-        ("j/k:nav  r:refresh  o:open  e:email  ?:help  q:quit".to_string(), Color::DarkGray)
+        "j/k:move  Enter:summarize  o:open  d:delete  a:add  ?:help  q:quit".to_string()
     };
 
-    let paragraph = Paragraph::new(status).style(Style::default().fg(color));
+    let paragraph = Paragraph::new(status).style(Style::default().fg(Color::DarkGray));
     frame.render_widget(paragraph, area);
 }
 
@@ -232,30 +232,6 @@ fn render_summary(frame: &mut Frame, app: &App, area: Rect) {
         .block(block)
         .wrap(Wrap { trim: true });
 
-    frame.render_widget(paragraph, area);
-}
-
-fn render_right_status(frame: &mut Frame, app: &App, area: Rect) {
-    let status = match app.summary_status {
-        SummaryStatus::NotGenerated => String::new(),
-        SummaryStatus::Generating => format!("{} Generating...", app.spinner_char()),
-        SummaryStatus::Failed => "❌ Failed".to_string(),
-        SummaryStatus::NoApiKey => "⚠️  No API key".to_string(),
-        SummaryStatus::Generated => "✓ Cached".to_string(),
-    };
-
-    let raindrop_status = if app.selected_article().map(|a| a.id).is_some() {
-        if app.is_saved_to_raindrop {
-            " | 💧 Saved"
-        } else {
-            " | b:bookmark"
-        }
-    } else {
-        ""
-    };
-
-    let text = format!("{status}{raindrop_status}");
-    let paragraph = Paragraph::new(text).style(Style::default().fg(Color::DarkGray));
     frame.render_widget(paragraph, area);
 }
 
@@ -417,12 +393,10 @@ fn render_help(frame: &mut Frame) {
         "   a        Add new feed",
         "   i        Import OPML file",
         "   w        Export OPML file",
-        "   m        Toggle read/unread",
         "   o        Open in browser",
         "   e        Email article",
         "   b        Save to Raindrop.io",
         "   g        Regenerate summary",
-        "   f        Cycle filter",
         "   d        Delete article",
         "   D        Delete feed",
         "   u        Undelete last",

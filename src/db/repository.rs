@@ -129,7 +129,7 @@ impl Repository {
             .call(|conn| {
                 let mut stmt = conn.prepare(
                     r#"SELECT a.id, a.feed_id, a.guid, a.title, a.url, a.author, a.content,
-                              a.content_text, a.published_at, a.fetched_at, a.is_read, a.is_starred,
+                              a.content_text, a.published_at, a.fetched_at,
                               f.title as feed_title
                        FROM articles a
                        JOIN feeds f ON a.feed_id = f.id
@@ -142,19 +142,6 @@ impl Repository {
             })
             .await?;
         Ok(articles)
-    }
-
-    pub async fn mark_article_read(&self, id: i64, is_read: bool) -> Result<()> {
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "UPDATE articles SET is_read = ?1 WHERE id = ?2",
-                    params![is_read, id],
-                )?;
-                Ok(())
-            })
-            .await?;
-        Ok(())
     }
 
     pub async fn delete_article(&self, id: i64) -> Result<()> {
@@ -396,9 +383,7 @@ fn article_from_row(row: &Row) -> Article {
             .ok()
             .and_then(|s| parse_datetime(&s))
             .unwrap_or_else(Utc::now),
-        is_read: row.get::<_, i64>(10).unwrap() != 0,
-        is_starred: row.get::<_, i64>(11).unwrap() != 0,
-        feed_title: row.get(12).unwrap(),
+        feed_title: row.get(10).unwrap(),
     }
 }
 

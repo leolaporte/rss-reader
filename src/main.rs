@@ -110,9 +110,6 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
         // Poll for completed feed discovery results
         app.poll_discovery_result().await?;
 
-        // Check if article has been viewed long enough to mark as read
-        app.check_read_timer().await?;
-
         // Poll for events with timeout to allow async operations
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {

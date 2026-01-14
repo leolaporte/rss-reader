@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 
 use tokio::sync::mpsc;
 
@@ -9,7 +8,7 @@ use crate::config::Config;
 use crate::db::Repository;
 use crate::error::Result;
 use crate::feed::{export_opml_file, parse_opml_file, FeedFetcher};
-use crate::models::{Article, ArticleFilter, Feed, Summary, SummaryStatus};
+use crate::models::{Article, Feed, Summary, SummaryStatus};
 use crate::services::{ContentFetcher, RaindropClient};
 use crate::tui::AppAction;
 
@@ -37,7 +36,6 @@ pub struct App {
 
     // UI State
     pub selected_index: usize,
-    pub filter: ArticleFilter,
     pub show_help: bool,
     pub tag_input_active: bool,
     pub tag_input: String,
@@ -53,7 +51,6 @@ pub struct App {
     pub is_saved_to_raindrop: bool,
     pub last_deleted: Option<(i64, String)>, // (feed_id, guid) for undo
     pub spinner_frame: usize,
-    selection_time: Option<Instant>,
 
     // Async state
     pub is_refreshing: bool,
@@ -109,7 +106,6 @@ impl App {
             articles,
             current_summary: None,
             selected_index: 0,
-            filter: ArticleFilter::Unread,
             show_help: false,
             tag_input_active: false,
             tag_input: String::new(),
@@ -125,7 +121,6 @@ impl App {
             is_saved_to_raindrop: false,
             last_deleted: None,
             spinner_frame: 0,
-            selection_time: None,
             is_refreshing: false,
             summary_status: SummaryStatus::NotGenerated,
             pending_summary_article_id: None,
@@ -144,13 +139,7 @@ impl App {
     }
 
     pub fn filtered_articles(&self) -> Vec<&Article> {
-        self.articles
-            .iter()
-            .filter(|a| match self.filter {
-                ArticleFilter::All => true,
-                ArticleFilter::Unread => !a.is_read,
-            })
-            .collect()
+        self.articles.iter().collect()
     }
 
     pub fn selected_article(&self) -> Option<&Article> {
@@ -205,15 +194,6 @@ impl App {
                 self.refresh_feeds();
             }
 
-            AppAction::ToggleRead => {
-                if let Some(article) = self.selected_article() {
-                    let id = article.id;
-                    let new_state = !article.is_read;
-                    self.repository.mark_article_read(id, new_state).await?;
-                    self.reload_articles().await?;
-                }
-            }
-
             AppAction::OpenInBrowser => {
                 if let Some(article) = self.selected_article() {
                     let url = article.url.clone();
@@ -232,12 +212,6 @@ impl App {
                     self.tag_input_active = true;
                     self.tag_input.clear();
                 }
-            }
-
-            AppAction::CycleFilter => {
-                self.filter = self.filter.cycle();
-                self.selected_index = 0;
-                self.on_selection_changed().await?;
             }
 
             AppAction::RegenerateSummary => {
@@ -398,16 +372,10 @@ impl App {
     }
 
     async fn on_selection_changed(&mut self) -> Result<()> {
-        // Don't reload articles - keep read articles visible until program closes
-        // They'll just appear unhighlighted in the list
-
         // Reset state when selection changes
         self.summary_status = SummaryStatus::NotGenerated;
         self.current_summary = None;
         self.is_saved_to_raindrop = false;
-
-        // Start the read timer for the new selection
-        self.selection_time = Some(Instant::now());
 
         // Check if current article is saved to raindrop
         let article_id = self.selected_article().map(|a| a.id);
@@ -443,9 +411,6 @@ impl App {
             self.summary_status = SummaryStatus::Generated;
             return Ok(());
         }
-
-        // Mark article as read
-        self.repository.mark_article_read(article.id, true).await?;
 
         let article_id = article.id;
         let title = article.title.clone();
@@ -549,26 +514,6 @@ impl App {
                     }
                 }
                 self.pending_summary_article_id = None;
-            }
-        }
-        Ok(())
-    }
-
-    /// Check if article has been viewed for 2+ seconds and mark as read
-    pub async fn check_read_timer(&mut self) -> Result<()> {
-        use std::time::Duration;
-
-        if let Some(selection_time) = self.selection_time {
-            if selection_time.elapsed() >= Duration::from_secs(2) {
-                if let Some(article) = self.selected_article() {
-                    if !article.is_read {
-                        let id = article.id;
-                        self.repository.mark_article_read(id, true).await?;
-                        // Don't reload - keep article visible until user navigates away
-                    }
-                }
-                // Clear the timer so we don't keep checking
-                self.selection_time = None;
             }
         }
         Ok(())
@@ -750,8 +695,6 @@ impl App {
                 self.repository
                     .mark_saved_to_raindrop(article_id, raindrop_id, tags)
                     .await?;
-                // Mark as read when bookmarked
-                self.repository.mark_article_read(article_id, true).await?;
                 self.is_saved_to_raindrop = true;
                 tracing::info!("Saved to Raindrop: {}", url);
             }
