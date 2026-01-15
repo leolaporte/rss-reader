@@ -59,9 +59,13 @@ Output ONLY the bullet points - no introductions, conclusions, or commentary.
 Start each line with "• " and state one key fact or finding.
 Never write phrases like "Here are the key points" or "In summary" - just the bullets."#;
 
-        // Truncate content if too long
+        // Truncate content if too long (find valid UTF-8 boundary)
         let content = if article_content.len() > 10000 {
-            &article_content[..10000]
+            let mut end = 10000;
+            while end > 0 && !article_content.is_char_boundary(end) {
+                end -= 1;
+            }
+            &article_content[..end]
         } else {
             article_content
         };
