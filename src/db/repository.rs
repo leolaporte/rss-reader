@@ -16,6 +16,8 @@ impl Repository {
         let conn = Connection::open(db_path).await?;
 
         conn.call(|conn| {
+            // Set busy timeout to 5 seconds to handle concurrent access
+            conn.busy_timeout(std::time::Duration::from_secs(5))?;
             conn.execute_batch(SCHEMA)?;
             Ok(())
         })
