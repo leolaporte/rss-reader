@@ -42,7 +42,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),   // Article title (feed + title)
+            Constraint::Length(3),   // Article title (single line)
             Constraint::Percentage(30), // Feed content (30%)
             Constraint::Percentage(70), // AI summary (70%)
         ])
@@ -179,29 +179,21 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_article_title(frame: &mut Frame, app: &App, area: Rect) {
-    let (feed, title) = app
+    let title = app
         .selected_article()
-        .map(|a| {
-            let feed = a.feed_title.as_deref().unwrap_or("Unknown");
-            (feed, a.title.as_str())
-        })
-        .unwrap_or(("", "No article selected"));
+        .map(|a| a.title.as_str())
+        .unwrap_or("No article selected");
 
     let block = Block::default()
         .title(" Article ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Green));
 
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let paragraph = Paragraph::new(title)
+        .block(block)
+        .style(Style::default().fg(Color::White));
 
-    let text = vec![
-        Line::from(Span::styled(feed, Style::default().fg(Color::Blue))),
-        Line::from(Span::styled(title, Style::default().fg(Color::White))),
-    ];
-
-    let paragraph = Paragraph::new(text).wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, inner);
+    frame.render_widget(paragraph, area);
 }
 
 fn render_feed_content(frame: &mut Frame, app: &App, area: Rect) {
