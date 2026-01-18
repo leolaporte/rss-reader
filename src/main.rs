@@ -7,6 +7,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use crossterm::event::{KeyEventKind};
 use ratatui::prelude::*;
 
 mod ai;
@@ -113,12 +114,14 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
         // Poll for events with timeout to allow async operations
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
-                if let Some(action) =
-                    handle_key_event(key, app.tag_input_active, app.feed_input_active, app.opml_input_active, app.opml_export_active, app.show_help)
-                {
-                    let should_quit = app.handle_action(action).await?;
-                    if should_quit {
-                        return Ok(());
+                if key.kind == KeyEventKind::Press {
+                    if let Some(action) =
+                        handle_key_event(key, app.tag_input_active, app.feed_input_active, app.opml_input_active, app.opml_export_active, app.show_help)
+                    {
+                        let should_quit = app.handle_action(action).await?;
+                        if should_quit {
+                            return Ok(());
+                        }
                     }
                 }
             }
