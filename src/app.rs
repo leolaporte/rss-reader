@@ -154,6 +154,7 @@ impl App {
         articles.get(self.selected_index).copied()
     }
 
+    #[allow(dead_code)]
     pub fn blocklist(&self) -> &Blocklist {
         &self.blocklist
     }
@@ -625,6 +626,13 @@ impl App {
             // Process the refresh results
             for (feed_id, articles) in result.results {
                 for article in articles {
+                    // Filter: skip articles containing blocked keywords
+                    let content_ref = article.content_text.as_deref()
+                        .or(article.content.as_deref());
+                    if self.blocklist.contains_blocked_keyword(&article.title, content_ref) {
+                        continue; // Silent skip - FILTER-06
+                    }
+
                     if let Err(e) = self.repository.upsert_article(article).await {
                         tracing::warn!("Failed to upsert article: {}", e);
                     }

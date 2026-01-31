@@ -59,10 +59,12 @@ impl Blocklist {
         }
     }
 
+    #[allow(dead_code)]
     pub fn keywords(&self) -> &HashSet<String> {
         &self.keywords
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.keywords.is_empty()
     }
