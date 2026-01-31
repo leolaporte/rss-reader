@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod app;
+pub mod blocklist;
 pub mod config;
 pub mod db;
 pub mod error;
