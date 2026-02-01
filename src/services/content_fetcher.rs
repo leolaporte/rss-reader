@@ -1,6 +1,4 @@
-use std::path::PathBuf;
 use std::time::Duration;
-
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use reqwest::Client;
 use rusqlite::params;
@@ -35,8 +33,8 @@ impl ContentFetcher {
             None => return Ok(None),
         };
 
-        // Get cookies for this domain from Firefox
-        let cookies = self.get_firefox_cookies(domain)?;
+        // Get cookies for this domain from Chrome
+        let cookies = self.get_chrome_cookies(domain)?;
 
         // Build request with cookies
         let mut headers = HeaderMap::new();
@@ -69,47 +67,70 @@ impl ContentFetcher {
         Ok(content)
     }
 
-    /// Read cookies from Firefox for a given domain
-    fn get_firefox_cookies(&self, domain: &str) -> Result<String> {
-        let firefox_dir = match Self::find_firefox_profile() {
-            Some(dir) => dir,
+    /// Read cookies from Chrome or Firefox for a given domain
+    fn get_chrome_cookies(&self, domain: &str) -> Result<String> {
+        // Try Chrome first
+        if let Ok(cookies) = self.get_chrome_cookies_internal(domain) {
+            if !cookies.is_empty() {
+                return Ok(cookies);
+            }
+        }
+
+        // Fall back to Firefox
+        self.get_firefox_cookies_internal(domain)
+    }
+
+    fn get_chrome_cookies_internal(&self, domain: &str) -> Result<String> {
+        // Try Chrome, then Chromium
+        let chrome_paths = vec![
+            dirs::home_dir().map(|h| h.join(".config/google-chrome/Default/Cookies")),
+            dirs::home_dir().map(|h| h.join(".config/chromium/Default/Cookies")),
+        ];
+
+        let cookies_db = chrome_paths
+            .into_iter()
+            .flatten()
+            .find(|p| p.exists());
+
+        let cookies_db = match cookies_db {
+            Some(db) => db,
             None => {
-                tracing::debug!("No Firefox profile found");
+                tracing::debug!("No Chrome/Chromium cookies found");
                 return Ok(String::new());
             }
         };
 
-        let cookies_db = firefox_dir.join("cookies.sqlite");
-        if !cookies_db.exists() {
-            tracing::debug!("Firefox cookies.sqlite not found");
-            return Ok(String::new());
-        }
-
-        // Firefox locks the database, so we need to copy it first
-        let temp_db = std::env::temp_dir().join("beatcheck-cookies.sqlite");
+        // Chrome locks the database, so we need to copy it first
+        let temp_db = std::env::temp_dir().join("beatcheck-chrome-cookies.sqlite");
         if let Err(e) = std::fs::copy(&cookies_db, &temp_db) {
-            tracing::debug!("Failed to copy cookies database: {}", e);
+            tracing::debug!("Failed to copy Chrome cookies database: {}", e);
             return Ok(String::new());
         }
 
         let conn = match rusqlite::Connection::open(&temp_db) {
             Ok(c) => c,
             Err(e) => {
-                tracing::debug!("Failed to open cookies database: {}", e);
+                tracing::debug!("Failed to open Chrome cookies database: {}", e);
                 return Ok(String::new());
             }
         };
 
+        // Current time in Chrome's timestamp format (microseconds since 1601-01-01)
+        // Chrome uses Windows FILETIME epoch, which is 11,644,473,600 seconds before Unix epoch
+        let now = (chrono::Utc::now().timestamp() + 11_644_473_600) * 1_000_000;
+
         // Query cookies for this domain (including subdomains)
         let mut stmt = conn.prepare(
-            "SELECT name, value FROM moz_cookies WHERE host LIKE ?1 OR host LIKE ?2",
+            "SELECT name, value FROM cookies
+             WHERE (host_key = ?1 OR host_key LIKE ?2)
+             AND expires_utc > ?3
+             AND name != '' AND value != ''",
         )?;
 
-        let domain_pattern = format!("%{}", domain);
-        let exact_domain = domain.to_string();
+        let domain_pattern = format!(".{}", domain);
 
         let cookies: Vec<String> = stmt
-            .query_map(params![domain_pattern, exact_domain], |row| {
+            .query_map(params![domain, domain_pattern, now], |row| {
                 let name: String = row.get(0)?;
                 let value: String = row.get(1)?;
                 Ok(format!("{}={}", name, value))
@@ -123,12 +144,62 @@ impl ContentFetcher {
         Ok(cookies.join("; "))
     }
 
-    /// Find the default Firefox profile directory
-    fn find_firefox_profile() -> Option<PathBuf> {
-        let home = dirs::home_dir()?;
+    fn get_firefox_cookies_internal(&self, domain: &str) -> Result<String> {
+        let firefox_path = match Self::find_firefox_cookies() {
+            Some(path) => path,
+            None => {
+                tracing::debug!("No Firefox cookies found");
+                return Ok(String::new());
+            }
+        };
 
-        // Check common Firefox profile locations
+        // Firefox locks the database, so we need to copy it first
+        let temp_db = std::env::temp_dir().join("beatcheck-firefox-cookies.sqlite");
+        if let Err(e) = std::fs::copy(&firefox_path, &temp_db) {
+            tracing::debug!("Failed to copy Firefox cookies database: {}", e);
+            return Ok(String::new());
+        }
+
+        let conn = match rusqlite::Connection::open(&temp_db) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::debug!("Failed to open Firefox cookies database: {}", e);
+                return Ok(String::new());
+            }
+        };
+
+        // Current time in Unix timestamp (seconds) - Firefox uses standard Unix epoch
+        let now = chrono::Utc::now().timestamp();
+
+        // Query cookies for this domain (including subdomains)
+        let mut stmt = conn.prepare(
+            "SELECT name, value FROM moz_cookies
+             WHERE (host = ?1 OR host LIKE ?2)
+             AND expiry > ?3
+             AND name != '' AND value != ''",
+        )?;
+
+        let domain_pattern = format!(".{}", domain);
+
+        let cookies: Vec<String> = stmt
+            .query_map(params![domain, domain_pattern, now], |row| {
+                let name: String = row.get(0)?;
+                let value: String = row.get(1)?;
+                Ok(format!("{}={}", name, value))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(&temp_db);
+
+        Ok(cookies.join("; "))
+    }
+
+    fn find_firefox_cookies() -> Option<std::path::PathBuf> {
+        let home = dirs::home_dir()?;
         let firefox_dir = home.join(".mozilla/firefox");
+
         if !firefox_dir.exists() {
             return None;
         }
@@ -137,7 +208,6 @@ impl ContentFetcher {
         let profiles_ini = firefox_dir.join("profiles.ini");
         if profiles_ini.exists() {
             if let Ok(content) = std::fs::read_to_string(&profiles_ini) {
-                // Find the default profile path
                 let mut current_path: Option<String> = None;
                 let mut is_default = false;
 
@@ -151,9 +221,10 @@ impl ContentFetcher {
                     if line.starts_with('[') && line != "[General]" {
                         if is_default {
                             if let Some(path) = current_path {
-                                let profile_dir = firefox_dir.join(path);
-                                if profile_dir.exists() {
-                                    return Some(profile_dir);
+                                let profile_dir = firefox_dir.join(&path);
+                                let cookies_path = profile_dir.join("cookies.sqlite");
+                                if cookies_path.exists() {
+                                    return Some(cookies_path);
                                 }
                             }
                         }
@@ -165,27 +236,32 @@ impl ContentFetcher {
                 // Check last section
                 if is_default {
                     if let Some(path) = current_path {
-                        let profile_dir = firefox_dir.join(path);
-                        if profile_dir.exists() {
-                            return Some(profile_dir);
+                        let profile_dir = firefox_dir.join(&path);
+                        let cookies_path = profile_dir.join("cookies.sqlite");
+                        if cookies_path.exists() {
+                            return Some(cookies_path);
                         }
                     }
                 }
             }
         }
 
-        // Fallback: find any profile directory with cookies.sqlite
+        // Fallback: find any profile with cookies.sqlite
         if let Ok(entries) = std::fs::read_dir(&firefox_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() && path.join("cookies.sqlite").exists() {
-                    return Some(path);
+                if path.is_dir() {
+                    let cookies_path = path.join("cookies.sqlite");
+                    if cookies_path.exists() {
+                        return Some(cookies_path);
+                    }
                 }
             }
         }
 
         None
     }
+
 
     /// Extract readable content from HTML using html2text
     fn extract_content(&self, html: &str, _url: &str) -> Option<String> {
