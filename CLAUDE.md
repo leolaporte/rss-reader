@@ -49,3 +49,41 @@ cargo fmt                # Format
 ## Spinners
 
 Braille animation: `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`
+
+## Recent Changes (2026-02-01)
+
+### Browser Cookie Support Enhancement
+
+**Previous:** Only supported Firefox cookies for fetching paywalled articles
+
+**Updated:** Now supports both Chrome and Firefox with intelligent fallback
+
+**Implementation:**
+- **Primary:** Chrome/Chromium cookies (Windows FILETIME epoch)
+  - Database: `~/.config/google-chrome/Default/Cookies`
+  - Timestamp: `(unix_timestamp + 11_644_473_600) * 1_000_000` microseconds
+  - Table: `cookies` with `host_key`, `expires_utc`
+
+- **Fallback:** Firefox cookies (Unix epoch)
+  - Database: `~/.mozilla/firefox/*/cookies.sqlite`
+  - Timestamp: `unix_timestamp` in seconds
+  - Table: `moz_cookies` with `host`, `expiry`
+
+**Loading Strategy:**
+1. Try Chrome first (most common browser)
+2. Fall back to Firefox if Chrome unavailable
+3. Per-domain cookie filtering for article URLs
+4. Filters expired cookies using correct epoch format
+
+**Files Modified:**
+- `src/services/content_fetcher.rs` - Added Chrome support with Firefox fallback
+  - `get_chrome_cookies_internal()` - Chrome cookie loading
+  - `get_firefox_cookies_internal()` - Firefox cookie loading (preserved)
+  - `find_firefox_cookies()` - Firefox profile detection
+
+**Commit:** `5d299cb` - feat: add Chrome cookie support with Firefox fallback
+
+**Benefits:**
+- Works with whichever browser user has installed
+- Automatic browser detection and selection
+- Better compatibility for paywalled content access
