@@ -164,7 +164,8 @@ impl FeedFetcher {
     }
 
     /// Search HTML for RSS/Atom feed links
-    fn find_feed_link(&self, html: &str, base_url: &str) -> Option<String> {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn find_feed_link(&self, html: &str, base_url: &str) -> Option<String> {
         // Look for <link rel="alternate" type="application/rss+xml" href="...">
         // or <link rel="alternate" type="application/atom+xml" href="...">
         let link_re = Regex::new(
@@ -187,7 +188,8 @@ impl FeedFetcher {
     }
 
     /// Resolve a potentially relative URL against a base URL
-    fn resolve_url(&self, href: &str, base_url: &str) -> String {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn resolve_url(&self, href: &str, base_url: &str) -> String {
         if href.starts_with("http://") || href.starts_with("https://") {
             return href.to_string();
         }
@@ -205,5 +207,207 @@ impl FeedFetcher {
 impl Default for FeedFetcher {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fetcher() -> FeedFetcher {
+        FeedFetcher::new()
+    }
+
+    // ==================== resolve_url tests ====================
+
+    #[test]
+    fn test_resolve_absolute_http_url() {
+        let f = fetcher();
+        let result = f.resolve_url("http://example.com/feed.xml", "https://base.com/page");
+        assert_eq!(result, "http://example.com/feed.xml");
+    }
+
+    #[test]
+    fn test_resolve_absolute_https_url() {
+        let f = fetcher();
+        let result = f.resolve_url("https://example.com/feed.xml", "https://base.com/page");
+        assert_eq!(result, "https://example.com/feed.xml");
+    }
+
+    #[test]
+    fn test_resolve_relative_path() {
+        let f = fetcher();
+        let result = f.resolve_url("/feed.xml", "https://example.com/blog/post");
+        assert_eq!(result, "https://example.com/feed.xml");
+    }
+
+    #[test]
+    fn test_resolve_relative_path_no_leading_slash() {
+        let f = fetcher();
+        let result = f.resolve_url("feed.xml", "https://example.com/blog/");
+        assert_eq!(result, "https://example.com/blog/feed.xml");
+    }
+
+    #[test]
+    fn test_resolve_relative_parent_path() {
+        let f = fetcher();
+        let result = f.resolve_url("../feed.xml", "https://example.com/blog/posts/");
+        assert_eq!(result, "https://example.com/blog/feed.xml");
+    }
+
+    #[test]
+    fn test_resolve_protocol_relative_url() {
+        let f = fetcher();
+        // Protocol-relative URLs start with // - not http:// or https://
+        // They should be resolved against the base URL's protocol
+        let result = f.resolve_url("//cdn.example.com/feed.xml", "https://example.com/page");
+        assert_eq!(result, "https://cdn.example.com/feed.xml");
+    }
+
+    #[test]
+    fn test_resolve_with_query_string() {
+        let f = fetcher();
+        let result = f.resolve_url("/feed.xml?format=rss", "https://example.com/blog");
+        assert_eq!(result, "https://example.com/feed.xml?format=rss");
+    }
+
+    #[test]
+    fn test_resolve_invalid_base_returns_href() {
+        let f = fetcher();
+        let result = f.resolve_url("/feed.xml", "not-a-valid-url");
+        assert_eq!(result, "/feed.xml");
+    }
+
+    // ==================== find_feed_link tests ====================
+
+    #[test]
+    fn test_find_rss_link_standard_order() {
+        let f = fetcher();
+        let html = r#"
+            <html>
+            <head>
+                <link rel="alternate" type="application/rss+xml" href="/feed.xml" title="RSS Feed">
+            </head>
+            </html>
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/feed.xml".to_string()));
+    }
+
+    #[test]
+    fn test_find_atom_link() {
+        let f = fetcher();
+        let html = r#"
+            <html>
+            <head>
+                <link rel="alternate" type="application/atom+xml" href="/atom.xml">
+            </head>
+            </html>
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/atom.xml".to_string()));
+    }
+
+    #[test]
+    fn test_find_feed_link_type_before_rel() {
+        let f = fetcher();
+        // Some sites put type before rel
+        let html = r#"
+            <html>
+            <head>
+                <link type="application/rss+xml" rel="alternate" href="/rss">
+            </head>
+            </html>
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/rss".to_string()));
+    }
+
+    #[test]
+    fn test_find_feed_link_absolute_url() {
+        let f = fetcher();
+        let html = r#"
+            <link rel="alternate" type="application/rss+xml" href="https://feeds.example.com/main.xml">
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        assert_eq!(result, Some("https://feeds.example.com/main.xml".to_string()));
+    }
+
+    #[test]
+    fn test_find_feed_link_single_quotes() {
+        let f = fetcher();
+        let html = r#"
+            <link rel='alternate' type='application/rss+xml' href='/feed'>
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/feed".to_string()));
+    }
+
+    #[test]
+    fn test_find_feed_link_no_feed() {
+        let f = fetcher();
+        let html = r#"
+            <html>
+            <head>
+                <link rel="stylesheet" href="/style.css">
+                <link rel="icon" href="/favicon.ico">
+            </head>
+            </html>
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_feed_link_empty_html() {
+        let f = fetcher();
+        let result = f.find_feed_link("", "https://example.com");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_feed_link_with_title_attribute() {
+        let f = fetcher();
+        let html = r#"
+            <link rel="alternate" type="application/rss+xml" title="My Blog RSS" href="/blog/feed">
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/blog/feed".to_string()));
+    }
+
+    #[test]
+    fn test_find_feed_link_complex_html() {
+        let f = fetcher();
+        // Real-world-ish HTML with multiple links
+        let html = r#"
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>My Site</title>
+                <link rel="stylesheet" href="/css/main.css">
+                <link rel="icon" type="image/x-icon" href="/favicon.ico">
+                <link rel="alternate" type="application/rss+xml" title="RSS" href="https://mysite.com/rss.xml">
+                <link rel="alternate" type="application/atom+xml" title="Atom" href="/atom.xml">
+            </head>
+            <body>Content</body>
+            </html>
+        "#;
+        // Should find the first feed link (RSS in this case)
+        let result = f.find_feed_link(html, "https://mysite.com");
+        assert_eq!(result, Some("https://mysite.com/rss.xml".to_string()));
+    }
+
+    #[test]
+    fn test_find_feed_link_href_before_type_not_supported() {
+        let f = fetcher();
+        // href attribute appears before type - current implementation doesn't handle this
+        // This documents the limitation; most real sites use standard attribute order
+        let html = r#"
+            <link href="/feed.xml" type="application/rss+xml" rel="alternate">
+        "#;
+        let result = f.find_feed_link(html, "https://example.com");
+        // Current regex doesn't match this order - returns None
+        assert_eq!(result, None);
     }
 }
